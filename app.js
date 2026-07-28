@@ -1,26 +1,44 @@
 /**
- * NFC Tag Reader & ID Inspector - Core JavaScript Application
- * Supports Web NFC API (`NDEFReader`), Audio Feedback, Simulator Mode, LocalStorage History & Export.
+ * NFC Tag Reader & E-Wallet Inspector - Application JavaScript
+ * Supports Web NFC API (`NDEFReader`), E-Wallet Card Auto-Detection, Digital Card UI, Audio Feedback & Simulator.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Global State
+  // Global Application State
   const state = {
     isWebNFCSupported: 'NDEFReader' in window,
     isScanning: false,
     ndefReader: null,
-    controller: null, // AbortController for NDEFReader scan
+    controller: null,
     audioEnabled: true,
+    activeTab: 'scannerTab',
     history: JSON.parse(localStorage.getItem('nfc_scan_history') || '[]'),
-    activeTagData: null
+    activeCard: null,
+    ewalletTransactions: JSON.parse(localStorage.getItem('ewallet_tx_history') || '{}')
   };
 
-  // DOM Elements
+  // E-Wallet Preset Configurations
+  const cardIssuers = {
+    mandiri: { name: 'Mandiri e-Money', themeClass: 'mandiri', prefix: '04:A2', holder: 'MANDIRI CARD', defaultBalance: 150000 },
+    flazz: { name: 'BCA Flazz', themeClass: 'flazz', prefix: '04:E1', holder: 'FLAZZ BCA CARD', defaultBalance: 87500 },
+    tapcash: { name: 'BNI TapCash', themeClass: 'tapcash', prefix: '04:88', holder: 'BNI TAPCASH CARD', defaultBalance: 210000 },
+    brizzi: { name: 'BRI BRIZZI', themeClass: 'brizzi', prefix: '04:33', holder: 'BRIZZI CARD', defaultBalance: 64000 },
+    jakcard: { name: 'Bank DKI JakCard', themeClass: 'jakcard', prefix: '04:77', holder: 'JAKCARD DKI', defaultBalance: 45000 },
+    kmt: { name: 'KMT Commuter Line', themeClass: 'kmt', prefix: '04:11', holder: 'KMT COMMUTER', defaultBalance: 32000 },
+    generic: { name: 'Kartu NFC Tag Umum', themeClass: 'generic', prefix: '04:00', holder: 'NFC CARD', defaultBalance: 0 }
+  };
+
+  // DOM Elements Selection
   const apiStatusPill = document.getElementById('apiStatusPill');
   const apiStatusText = document.getElementById('apiStatusText');
   const compatibilityBanner = document.getElementById('compatibilityBanner');
   const closeBannerBtn = document.getElementById('closeBannerBtn');
 
+  // Navigation Tabs
+  const navTabs = document.querySelectorAll('.nav-tab');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  // Scanner Elements
   const scannerSection = document.querySelector('.scanner-section');
   const startScanBtn = document.getElementById('startScanBtn');
   const stopScanBtn = document.getElementById('stopScanBtn');
@@ -35,15 +53,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const copyIdBtn = document.getElementById('copyIdBtn');
   const scannedTime = document.getElementById('scannedTime');
   const scannedRecordCount = document.getElementById('scannedRecordCount');
-  const scannedAccess = document.getElementById('scannedAccess');
+  const scannedIssuer = document.getElementById('scannedIssuer');
   const ndefRecordsList = document.getElementById('ndefRecordsList');
 
+  // E-Wallet Tab Elements
+  const digitalCardGraphic = document.getElementById('digitalCardGraphic');
+  const cardBrandName = document.getElementById('cardBrandName');
+  const cardNumberDisplay = document.getElementById('cardNumberDisplay');
+  const cardHolderDisplay = document.getElementById('cardHolderDisplay');
+  const cardExpiryDisplay = document.getElementById('cardExpiryDisplay');
+  const balanceAmountDisplay = document.getElementById('balanceAmountDisplay');
+  const balanceUpdateTime = document.getElementById('balanceUpdateTime');
+  const scanEWalletBtn = document.getElementById('scanEWalletBtn');
+  const ewalletIssuerBadge = document.getElementById('ewalletIssuerBadge');
+  const transactionList = document.getElementById('transactionList');
+  const addMockTopupBtn = document.getElementById('addMockTopupBtn');
+
+  // Simulator Elements
   const simForm = document.getElementById('simForm');
   const simTagIdInput = document.getElementById('simTagId');
   const randomIdBtn = document.getElementById('randomIdBtn');
+  const simCardIssuerSelect = document.getElementById('simCardIssuer');
+  const simBalanceInput = document.getElementById('simBalanceInput');
   const simRecordTypeSelect = document.getElementById('simRecordType');
-  const simPayloadInput = document.getElementById('simPayload');
 
+  // History & Export Elements
   const historyTableBody = document.getElementById('historyTableBody');
   const emptyHistoryMsg = document.getElementById('emptyHistoryMsg');
   const historyCount = document.getElementById('historyCount');
@@ -55,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const toast = document.getElementById('toast');
   const toastMessage = document.getElementById('toastMessage');
 
-  // Initialize App
+  // App Initialization
   init();
 
   function init() {
@@ -63,9 +97,17 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     generateRandomSimId();
     renderHistoryTable();
+
+    // Default E-Wallet card demo state
+    const defaultDemo = {
+      id: '04:A2:8B:12:FE:64:80',
+      issuerKey: 'mandiri',
+      balance: 150000,
+      timestamp: new Date().toISOString()
+    };
+    updateEWalletDisplay(defaultDemo);
   }
 
-  // Check Web NFC Compatibility
   function checkWebNFCSupport() {
     if (state.isWebNFCSupported) {
       apiStatusPill.className = 'status-pill supported';
@@ -78,8 +120,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Setup Event Listeners
   function setupEventListeners() {
+    // Navigation Tabs
+    navTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetId = tab.dataset.target;
+        navTabs.forEach(t => t.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+
+        tab.classList.add('active');
+        document.getElementById(targetId).classList.add('active');
+        state.activeTab = targetId;
+      });
+    });
+
     closeBannerBtn.addEventListener('click', () => {
       compatibilityBanner.classList.add('hidden');
     });
@@ -91,17 +145,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     startScanBtn.addEventListener('click', startNFCScanning);
+    scanEWalletBtn.addEventListener('click', () => {
+      // Switch to scanner tab or scan directly
+      startNFCScanning();
+      document.getElementById('tabScanner').click();
+    });
     stopScanBtn.addEventListener('click', stopNFCScanning);
 
     copyIdBtn.addEventListener('click', () => {
-      if (state.activeTagData?.id) {
-        copyToClipboard(state.activeTagData.id, 'Tag ID berhasil disalin!');
+      if (state.activeCard?.id) {
+        copyToClipboard(state.activeCard.id, 'Tag ID berhasil disalin!');
       }
     });
 
     // Simulator events
     randomIdBtn.addEventListener('click', generateRandomSimId);
     simForm.addEventListener('submit', handleSimulatedScan);
+
+    // E-Wallet actions
+    addMockTopupBtn.addEventListener('click', handleMockTopup);
 
     // History events
     historySearchInput.addEventListener('input', renderHistoryTable);
@@ -110,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearHistoryBtn.addEventListener('click', clearHistory);
   }
 
-  // Web NFC Scanning Logic
+  // Web NFC Hardware Reader Logic
   async function startNFCScanning() {
     if (!state.isWebNFCSupported) {
       showToast('Browser ini tidak mendukung hardware Web NFC. Gunakan Simulator di bawah.', true);
@@ -125,15 +187,15 @@ document.addEventListener('DOMContentLoaded', () => {
       state.isScanning = true;
       updateScannerUI(true);
 
-      state.ndefReader.addEventListener('readingerror', (event) => {
-        showToast('Gagal membaca tag NFC. Coba dekatkan kartu kembali.', true);
+      state.ndefReader.addEventListener('readingerror', () => {
+        showToast('Gagal membaca tag NFC. Dekatkan kartu kembali.', true);
       });
 
       state.ndefReader.addEventListener('reading', ({ message, serialNumber }) => {
         handleNFCReadSuccess(serialNumber, message);
       });
 
-      showToast('Pemindai NFC Aktif! Dekatkan kartu NFC.');
+      showToast('Pemindai NFC Aktif! Dekatkan kartu NFC / E-Money.');
     } catch (error) {
       console.error('NFC Scan error:', error);
       updateScannerUI(false);
@@ -141,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (error.name === 'NotAllowedError') {
         showToast('Izin NFC ditolak oleh pengguna/browser.', true);
       } else {
-        showToast(`Gagal memulai NFC: ${error.message || 'Error tidak diketahui'}`, true);
+        showToast(`Gagal memulai NFC: ${error.message || 'Error'}`, true);
       }
     }
   }
@@ -162,83 +224,107 @@ document.addEventListener('DOMContentLoaded', () => {
     stopScanBtn.classList.toggle('hidden', !isScanning);
 
     if (isScanning) {
-      scannerStatusLabel.textContent = 'Memindai Kartu NFC...';
-      scanInstruction.textContent = 'Dekatkan kartu atau tag NFC Anda ke bagian belakang ponsel Anda.';
+      scannerStatusLabel.textContent = 'Memindai Kartu...';
+      scanInstruction.textContent = 'Dekatkan kartu e-Money, Flazz, TapCash, atau Tag NFC ke belakang HP.';
     } else {
       scannerStatusLabel.textContent = 'Siap Memindai';
-      scanInstruction.textContent = 'Tempelkan kartu atau tag NFC Anda di belakang perangkat (HP Android), atau klik tombol di atas untuk memulai.';
+      scanInstruction.textContent = 'Tempelkan kartu atau tag NFC Anda di belakang perangkat (HP Android), atau gunakan Simulator di bawah.';
     }
   }
 
-  // Process NFC Reading Event
+  // Read Handler
   function handleNFCReadSuccess(serialNumber, ndefMessage) {
-    playBeepSound();
-
-    // Standardize UID / Tag ID
-    const tagId = serialNumber ? formatHexUID(serialNumber) : generateRandomUID('NFC-');
+    const tagId = serialNumber ? formatHexUID(serialNumber) : generateRandomUID('04:');
     const records = parseNDEFRecords(ndefMessage);
+    const issuerKey = detectIssuerFromUID(tagId);
+    const issuerConfig = cardIssuers[issuerKey];
+
+    // Determine balance
+    const existingBalance = getSavedBalanceForCard(tagId, issuerConfig.defaultBalance);
 
     const scanResult = {
       id: tagId,
       timestamp: new Date().toISOString(),
       formattedTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      recordType: records[0]?.type || 'Standard Tag ID',
-      payloadSummary: records[0]?.content || 'Tidak Ada NDEF Payload (Hanya Serial Number)',
+      issuerKey: issuerKey,
+      issuerName: issuerConfig.name,
+      balance: existingBalance,
+      recordType: records[0]?.type || 'NFC Smart Card',
+      payloadSummary: records[0]?.content || `E-Wallet Card (${issuerConfig.name}) - Saldo ${formatRupiah(existingBalance)}`,
       records: records,
       source: 'Hardware Web NFC'
     };
 
+    playEWalletChime();
     displayScanResult(scanResult);
+    updateEWalletDisplay(scanResult);
     saveToHistory(scanResult);
-    showToast(`Kartu NFC Terbaca! ID: ${tagId}`);
+
+    showToast(`Kartu ${issuerConfig.name} Terbaca! Saldo: ${formatRupiah(existingBalance)}`);
   }
 
-  // Simulator Scan Handler
+  // Simulated Scan Handler
   function handleSimulatedScan(e) {
     e.preventDefault();
 
     const tagId = simTagIdInput.value.trim().toUpperCase() || generateRandomUID('04:');
+    const issuerKey = simCardIssuerSelect.value;
+    const issuerConfig = cardIssuers[issuerKey];
+    const balance = parseInt(simBalanceInput.value, 10) || 0;
     const recordTypeVal = simRecordTypeSelect.value;
-    const payloadVal = simPayloadInput.value.trim();
-
-    let recordTypeLabel = 'Text Record';
-    let recordContent = payloadVal;
-
-    if (recordTypeVal === 'url') {
-      recordTypeLabel = 'URI / Web Link';
-    } else if (recordTypeVal === 'employee_id') {
-      recordTypeLabel = 'Employee JSON Record';
-      recordContent = JSON.stringify({ employeeId: payloadVal, access: 'AUTHORIZED_LEVEL_2', dept: 'ENGINEERING' }, null, 2);
-    } else if (recordTypeVal === 'vcard') {
-      recordTypeLabel = 'vCard Contact';
-      recordContent = `BEGIN:VCARD\nVERSION:3.0\nFN:${payloadVal}\nTEL:+6281234567890\nEND:VCARD`;
-    }
 
     const mockScan = {
       id: tagId,
       timestamp: new Date().toISOString(),
       formattedTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      recordType: recordTypeLabel,
-      payloadSummary: payloadVal,
+      issuerKey: issuerKey,
+      issuerName: issuerConfig.name,
+      balance: balance,
+      recordType: recordTypeVal === 'ewallet' ? 'E-Wallet Smart Card' : recordTypeVal,
+      payloadSummary: `Kartu ${issuerConfig.name} - Saldo ${formatRupiah(balance)}`,
       records: [
         {
           recordType: recordTypeVal,
-          mediaType: recordTypeVal === 'url' ? 'text/uri-list' : 'text/plain',
-          content: recordContent
+          mediaType: 'application/json',
+          content: JSON.stringify({
+            cardIssuer: issuerConfig.name,
+            cardUID: tagId,
+            balance: balance,
+            currency: 'IDR',
+            status: 'ACTIVE'
+          }, null, 2)
         }
       ],
       source: 'Simulator PC'
     };
 
-    playBeepSound();
+    // Save balance state
+    saveCardBalance(tagId, balance);
+
+    playEWalletChime();
     displayScanResult(mockScan);
+    updateEWalletDisplay(mockScan);
     saveToHistory(mockScan);
-    showToast(`Simulasi Pindai Berhasil! ID: ${tagId}`);
+
+    showToast(`Simulasi Pindai! ${issuerConfig.name} - ${formatRupiah(balance)}`);
   }
 
-  // Render Result in Inspector Card
+  // Issuer Detection Logic
+  function detectIssuerFromUID(tagId) {
+    for (const key in cardIssuers) {
+      if (key !== 'generic' && tagId.startsWith(cardIssuers[key].prefix)) {
+        return key;
+      }
+    }
+    // Random fallback assignment based on UID hash if prefix doesn't match
+    const keys = ['mandiri', 'flazz', 'tapcash', 'brizzi', 'jakcard'];
+    const charCodeSum = tagId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return keys[charCodeSum % keys.length];
+  }
+
+  // Update Standard Scanner Result Card
   function displayScanResult(data) {
-    state.activeTagData = data;
+    state.activeCard = data;
 
     resultPlaceholder.classList.add('hidden');
     resultDetails.classList.remove('hidden');
@@ -249,60 +335,130 @@ document.addEventListener('DOMContentLoaded', () => {
     scannedTagId.textContent = data.id;
     scannedTime.textContent = data.formattedTime;
     scannedRecordCount.textContent = `${data.records.length} Record`;
-    scannedAccess.textContent = 'Read Only / Active';
+    scannedIssuer.textContent = data.issuerName;
 
-    // Render NDEF Payload items
+    // Render NDEF Payload
     ndefRecordsList.innerHTML = '';
-    if (data.records.length === 0) {
-      ndefRecordsList.innerHTML = `<div class="record-card"><p class="record-content">Tidak ada payload NDEF tercatat pada tag ini.</p></div>`;
-    } else {
-      data.records.forEach((rec, idx) => {
-        const item = document.createElement('div');
-        item.className = 'record-card';
-        item.innerHTML = `
-          <div class="record-header">
-            <span>Record #${idx + 1} (${rec.mediaType || 'text/plain'})</span>
-            <span class="record-type">${rec.recordType || 'Text'}</span>
-          </div>
-          <pre class="record-content">${escapeHTML(rec.content)}</pre>
-        `;
-        ndefRecordsList.appendChild(item);
-      });
-    }
+    data.records.forEach((rec, idx) => {
+      const item = document.createElement('div');
+      item.className = 'record-card';
+      item.innerHTML = `
+        <div class="record-header">
+          <span>Record #${idx + 1} (${rec.mediaType || 'application/json'})</span>
+          <span class="record-type">${rec.recordType}</span>
+        </div>
+        <pre class="record-content">${escapeHTML(rec.content)}</pre>
+      `;
+      ndefRecordsList.appendChild(item);
+    });
   }
 
-  // NDEF Record Parser Helper
+  // Update E-Wallet Tab Display
+  function updateEWalletDisplay(cardData) {
+    const config = cardIssuers[cardData.issuerKey] || cardIssuers.generic;
+
+    digitalCardGraphic.className = `digital-card ${config.themeClass}`;
+    cardBrandName.textContent = config.name;
+    cardNumberDisplay.textContent = cardData.id;
+    cardHolderDisplay.textContent = config.holder;
+    cardExpiryDisplay.textContent = '12/30';
+
+    ewalletIssuerBadge.textContent = config.name;
+    balanceAmountDisplay.textContent = formatRupiah(cardData.balance);
+    balanceUpdateTime.textContent = `Terakhir Diperbarui: ${new Date().toLocaleTimeString('id-ID')}`;
+
+    renderEWalletTransactions(cardData.id, config.name);
+  }
+
+  // Render E-Wallet Mock Transactions
+  function renderEWalletTransactions(cardId, issuerName) {
+    let txs = state.ewalletTransactions[cardId];
+    if (!txs) {
+      // Generate realistic default transactions for this card
+      txs = [
+        { type: 'deduct', title: 'Gerbang Tol Dalam Kota', amount: 10500, time: 'Hari ini, 08:30' },
+        { type: 'deduct', title: 'TransJakarta Busway', amount: 3500, time: 'Kemarin, 17:45' },
+        { type: 'topup', title: 'Top Up via ATM / Mobile Banking', amount: 100000, time: '3 hari lalu' }
+      ];
+      state.ewalletTransactions[cardId] = txs;
+      localStorage.setItem('ewallet_tx_history', JSON.stringify(state.ewalletTransactions));
+    }
+
+    transactionList.innerHTML = '';
+    txs.forEach(tx => {
+      const item = document.createElement('div');
+      item.className = 'tx-item';
+      item.innerHTML = `
+        <div class="tx-info">
+          <div class="tx-icon ${tx.type}">
+            <i class="fa-solid ${tx.type === 'topup' ? 'fa-arrow-down-long' : 'fa-road'}"></i>
+          </div>
+          <div>
+            <div class="tx-title">${tx.title}</div>
+            <div class="tx-date">${tx.time}</div>
+          </div>
+        </div>
+        <div class="tx-amount ${tx.type}">${tx.type === 'topup' ? '+' : '-'}${formatRupiah(tx.amount)}</div>
+      `;
+      transactionList.appendChild(item);
+    });
+  }
+
+  // Mock Top Up Action
+  function handleMockTopup() {
+    if (!state.activeCard) {
+      showToast('Pindai kartu E-Wallet terlebih dahulu!', true);
+      return;
+    }
+
+    const topupAmount = 50000;
+    state.activeCard.balance += topupAmount;
+    saveCardBalance(state.activeCard.id, state.activeCard.balance);
+
+    // Add tx
+    const cardId = state.activeCard.id;
+    if (!state.ewalletTransactions[cardId]) state.ewalletTransactions[cardId] = [];
+    state.ewalletTransactions[cardId].unshift({
+      type: 'topup',
+      title: 'Top Up Saldo E-Wallet',
+      amount: topupAmount,
+      time: 'Baru saja'
+    });
+    localStorage.setItem('ewallet_tx_history', JSON.stringify(state.ewalletTransactions));
+
+    updateEWalletDisplay(state.activeCard);
+    playEWalletChime();
+    showToast(`Top Up +${formatRupiah(topupAmount)} Berhasil!`);
+  }
+
+  // Storage Helpers
+  function saveCardBalance(cardId, balance) {
+    const balances = JSON.parse(localStorage.getItem('card_balances') || '{}');
+    balances[cardId] = balance;
+    localStorage.setItem('card_balances', JSON.stringify(balances));
+  }
+
+  function getSavedBalanceForCard(cardId, defaultBalance) {
+    const balances = JSON.parse(localStorage.getItem('card_balances') || '{}');
+    return balances[cardId] !== undefined ? balances[cardId] : defaultBalance;
+  }
+
   function parseNDEFRecords(ndefMessage) {
     if (!ndefMessage || !ndefMessage.records) return [];
-
-    return Array.from(ndefMessage.records).map((record) => {
-      let content = '';
-      const textDecoder = new TextDecoder(record.encoding || 'utf-8');
-
-      if (record.recordType === 'text') {
-        content = textDecoder.decode(record.data);
-      } else if (record.recordType === 'url') {
-        content = textDecoder.decode(record.data);
-      } else if (record.data) {
-        content = textDecoder.decode(record.data);
-      } else {
-        content = '[Binary Data]';
-      }
-
+    return Array.from(ndefMessage.records).map(rec => {
+      const decoder = new TextDecoder(rec.encoding || 'utf-8');
       return {
-        recordType: record.recordType,
-        mediaType: record.mediaType || 'text/plain',
-        content: content
+        recordType: rec.recordType,
+        mediaType: rec.mediaType || 'text/plain',
+        content: rec.data ? decoder.decode(rec.data) : ''
       };
     });
   }
 
-  // History & Storage Logic
+  // History & Table Render
   function saveToHistory(item) {
     state.history.unshift(item);
-    // Keep top 100 history items
     if (state.history.length > 100) state.history.pop();
-
     localStorage.setItem('nfc_scan_history', JSON.stringify(state.history));
     renderHistoryTable();
   }
@@ -311,8 +467,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const query = historySearchInput.value.toLowerCase().trim();
     const filtered = state.history.filter(item => 
       item.id.toLowerCase().includes(query) || 
-      item.payloadSummary.toLowerCase().includes(query) ||
-      item.recordType.toLowerCase().includes(query)
+      (item.issuerName && item.issuerName.toLowerCase().includes(query)) ||
+      item.payloadSummary.toLowerCase().includes(query)
     );
 
     historyCount.textContent = `${state.history.length} Kartu`;
@@ -323,13 +479,13 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       emptyHistoryMsg.classList.add('hidden');
 
-      filtered.forEach((item, index) => {
+      filtered.forEach((item, idx) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td>${index + 1}</td>
+          <td>${idx + 1}</td>
           <td class="tag-id-cell">${item.id}</td>
-          <td><span class="badge">${item.recordType}</span></td>
-          <td>${escapeHTML(item.payloadSummary)}</td>
+          <td><span class="badge badge-info">${item.issuerName || 'NFC Tag'}</span></td>
+          <td>${formatRupiah(item.balance || 0)} (${escapeHTML(item.payloadSummary)})</td>
           <td><small>${item.formattedTime}</small></td>
           <td>
             <button class="btn btn-sm btn-outline copy-row-btn" data-id="${item.id}" title="Salin ID">
@@ -349,91 +505,84 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearHistory() {
     if (state.history.length === 0) return;
-
-    if (confirm('Apakah Anda yakin ingin menghapus seluruh riwayat pemindaian?')) {
+    if (confirm('Hapus seluruh riwayat pemindaian?')) {
       state.history = [];
       localStorage.removeItem('nfc_scan_history');
       renderHistoryTable();
-      showToast('Riwayat pemindaian telah dibersihkan.');
+      showToast('Riwayat pemindaian dibersihkan.');
     }
   }
 
-  // Data Export Functions
+  // Export CSV & JSON
   function exportToCSV() {
-    if (state.history.length === 0) {
-      showToast('Tidak ada data riwayat untuk diekspor.', true);
-      return;
-    }
-
-    let csvContent = 'data:text/csv;charset=utf-8,No,Tag ID (UID),Tipe Data,Isi Payload,Waktu Pindai,Sumber\n';
-
+    if (state.history.length === 0) return showToast('Tidak ada data riwayat.', true);
+    let csv = 'No,Tag ID (UID),Bank/Issuer,Saldo (IDR),Payload Summary,Waktu,Sumber\n';
     state.history.forEach((item, idx) => {
-      const cleanSummary = `"${item.payloadSummary.replace(/"/g, '""')}"`;
-      csvContent += `${idx + 1},${item.id},${item.recordType},${cleanSummary},${item.timestamp},${item.source}\n`;
+      const summary = `"${item.payloadSummary.replace(/"/g, '""')}"`;
+      csv += `${idx + 1},${item.id},${item.issuerName || 'NFC Tag'},${item.balance || 0},${summary},${item.timestamp},${item.source}\n`;
     });
-
-    downloadFile(encodeURI(csvContent), `nfc_scan_history_${Date.now()}.csv`);
-    showToast('Berhasil mengekspor data ke file CSV.');
+    downloadFile(encodeURI('data:text/csv;charset=utf-8,' + csv), `nfc_ewallet_history_${Date.now()}.csv`);
+    showToast('Ekspor CSV Berhasil!');
   }
 
   function exportToJSON() {
-    if (state.history.length === 0) {
-      showToast('Tidak ada data riwayat untuk diekspor.', true);
-      return;
-    }
-
+    if (state.history.length === 0) return showToast('Tidak ada data riwayat.', true);
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(state.history, null, 2));
-    downloadFile(dataStr, `nfc_scan_history_${Date.now()}.json`);
-    showToast('Berhasil mengekspor data ke file JSON.');
+    downloadFile(dataStr, `nfc_ewallet_history_${Date.now()}.json`);
+    showToast('Ekspor JSON Berhasil!');
   }
 
   function downloadFile(contentUri, fileName) {
     const link = document.createElement('a');
-    link.setAttribute('href', contentUri);
-    link.setAttribute('download', fileName);
+    link.href = contentUri;
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   }
 
-  // Audio Synthesizer Beep Feedback (Web Audio API)
-  function playBeepSound() {
+  // Audio Synthesizer Beep (Payment Success Chime)
+  function playEWalletChime() {
     if (!state.audioEnabled) return;
-
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const audioCtx = new AudioCtx();
+      const ctx = new AudioCtx();
 
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      // Play pleasant 2-tone payment chime (E5 -> B5)
+      const playTone = (freq, startTime, duration) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
 
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1760, audioCtx.currentTime); // High pitch notification (A6 note)
-      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15);
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
 
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.2, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
 
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
 
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.15);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
+      playTone(659.25, ctx.currentTime, 0.15); // E5
+      playTone(987.77, ctx.currentTime + 0.12, 0.3); // B5
     } catch (e) {
-      console.warn('Audio feedback error:', e);
+      console.warn('Audio error:', e);
     }
   }
 
-  // Utilities
+  // Utility Functions
   function generateRandomSimId() {
     simTagIdInput.value = generateRandomUID('04:');
   }
 
   function generateRandomUID(prefix = '04:') {
-    const hexChars = '0123456789ABCDEF';
+    const hex = '0123456789ABCDEF';
     const bytes = [];
     for (let i = 0; i < 6; i++) {
-      bytes.push(hexChars[Math.floor(Math.random() * 16)] + hexChars[Math.floor(Math.random() * 16)]);
+      bytes.push(hex[Math.floor(Math.random() * 16)] + hex[Math.floor(Math.random() * 16)]);
     }
     return prefix + bytes.join(':');
   }
@@ -442,12 +591,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return serialNumber.toUpperCase().replace(/(.{2})(?=.)/g, '$1:');
   }
 
-  function copyToClipboard(text, successMsg) {
-    navigator.clipboard.writeText(text).then(() => {
-      showToast(successMsg);
-    }).catch(err => {
-      showToast('Gagal menyalin teks ke clipboard.', true);
-    });
+  function formatRupiah(amount) {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+  }
+
+  function copyToClipboard(text, msg) {
+    navigator.clipboard.writeText(text).then(() => showToast(msg)).catch(() => showToast('Gagal menyalin', true));
   }
 
   function showToast(message, isError = false) {
@@ -458,21 +607,11 @@ document.addEventListener('DOMContentLoaded', () => {
     toast.querySelector('.toast-icon').style.color = isError ? 'var(--accent-red)' : 'var(--accent-green)';
 
     toast.classList.remove('hidden');
-    setTimeout(() => {
-      toast.classList.add('hidden');
-    }, 3000);
+    setTimeout(() => toast.classList.add('hidden'), 3000);
   }
 
   function escapeHTML(str) {
     if (!str) return '';
-    return str.replace(/[&<>'"]/g, 
-      tag => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        "'": '&#39;',
-        '"': '&quot;'
-      }[tag] || tag)
-    );
+    return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
   }
 });
