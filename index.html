@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NFC Tag & ID Scanner - Web Application</title>
+  <meta name="description" content="Aplikasi Web Pembaca Kartu & Tag NFC berbasis Web NFC API dengan fitur ekstraksi ID, NDEF records, simulator desktop, dan ekspor data." />
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Background Glow FX -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <i class="fa-solid fa-nfc-symbol"></i>
+        </div>
+        <div>
+          <h1>NFC Tag Reader & ID Inspector</h1>
+          <p class="subtitle">Pembaca Kartu & Tag NFC Berbasis Web API</p>
+        </div>
+      </div>
+
+      <!-- Environment & Device API Compatibility Badge -->
+      <div class="status-pill" id="apiStatusPill">
+        <span class="status-dot"></span>
+        <span id="apiStatusText">Mengecek Dukungan Web NFC...</span>
+      </div>
+    </header>
+
+    <!-- Browser Warning Banner if not HTTPS or mobile -->
+    <div id="compatibilityBanner" class="alert-banner hidden">
+      <i class="fa-solid fa-circle-info banner-icon"></i>
+      <div class="banner-content">
+        <h4 id="bannerTitle">Dukungan Web NFC API</h4>
+        <p id="bannerMessage">Fitur Web NFC langsung membutuhkan browser Google Chrome (Android) dengan koneksi HTTPS atau Localhost. Anda dapat menggunakan <strong>Mode Simulator NFC</strong> di bawah untuk mencoba semua fitur pada PC/Desktop.</p>
+      </div>
+      <button id="closeBannerBtn" class="btn-icon" title="Tutup Banner"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <!-- Main Content Grid -->
+    <main class="main-grid">
+      <!-- Left Column: Radar Scanner & Controls -->
+      <section class="card scanner-section">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-radar"></i> Pemindai NFC (Scanner)</h2>
+          <div class="sound-toggle">
+            <button id="toggleAudioBtn" class="btn-toggle active" title="Efek Suara Bip">
+              <i class="fa-solid fa-volume-high"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Radar Animation Area -->
+        <div class="radar-wrapper">
+          <div class="radar-circle ring-1"></div>
+          <div class="radar-circle ring-2"></div>
+          <div class="radar-circle ring-3"></div>
+          <div class="radar-sweep"></div>
+
+          <div class="nfc-card-icon" id="nfcCardIcon">
+            <i class="fa-solid fa-credit-card"></i>
+          </div>
+
+          <div class="scan-status-overlay">
+            <span class="status-pulse" id="scannerPulse"></span>
+            <span id="scannerStatusLabel" class="status-label">Siap Memindai</span>
+          </div>
+        </div>
+
+        <p class="scan-instruction" id="scanInstruction">
+          Tempelkan kartu atau tag NFC Anda di belakang perangkat (HP Android), atau klik tombol di bawah untuk memulai.
+        </p>
+
+        <div class="scanner-actions">
+          <button id="startScanBtn" class="btn btn-primary">
+            <i class="fa-solid fa-play"></i> Mulai Pindai NFC
+          </button>
+          <button id="stopScanBtn" class="btn btn-danger hidden">
+            <i class="fa-solid fa-stop"></i> Hentikan Pindai
+          </button>
+        </div>
+      </section>
+
+      <!-- Right Column: Latest Scanned Tag Result & Inspector -->
+      <section class="card result-section">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-id-card-clip"></i> Hasil Kartu Terakhir</h2>
+          <span class="badge" id="tagTypeBadge">Belum Ada Data</span>
+        </div>
+
+        <div class="result-placeholder" id="resultPlaceholder">
+          <i class="fa-solid fa-nfc-directional placeholder-icon"></i>
+          <p>Belum ada kartu NFC yang dipindai.</p>
+          <small>Hasil ID dan data payload NDEF akan muncul di sini secara otomatis.</small>
+        </div>
+
+        <div class="result-details hidden" id="resultDetails">
+          <!-- Primary ID Display -->
+          <div class="id-display-box">
+            <span class="id-label">SERIAL NUMBER / TAG ID (UID)</span>
+            <div class="id-value-group">
+              <code id="scannedTagId" class="id-value">04:A2:8B:12:FE:64:80</code>
+              <button id="copyIdBtn" class="btn btn-sm btn-secondary" title="Salin ID Kartu">
+                <i class="fa-regular fa-copy"></i> Salin ID
+              </button>
+            </div>
+          </div>
+
+          <!-- Metadata Grid -->
+          <div class="meta-grid">
+            <div class="meta-item">
+              <span class="meta-title"><i class="fa-regular fa-clock"></i> Waktu Pindai</span>
+              <span class="meta-value" id="scannedTime">-</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-title"><i class="fa-solid fa-wave-square"></i> Jenis NDEF</span>
+              <span class="meta-value" id="scannedRecordCount">0 Record</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-title"><i class="fa-solid fa-shield-halved"></i> Fitur Akses</span>
+              <span class="meta-value" id="scannedAccess">Read / Write</span>
+            </div>
+          </div>
+
+          <!-- NDEF Payload Records Inspector -->
+          <div class="ndef-records-container">
+            <h3 class="subheading"><i class="fa-solid fa-database"></i> Isi Payload (NDEF Records)</h3>
+            <div id="ndefRecordsList" class="records-list">
+              <!-- Dynamically populated NDEF items -->
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Lower Section: Simulator & History -->
+    <div class="secondary-grid">
+      <!-- NFC Tag Simulator Card (For PC & Testing) -->
+      <section class="card simulator-card">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-gamepad"></i> Simulator NFC (Pengujian PC / Desktop)</h2>
+          <span class="badge badge-info"><i class="fa-solid fa-flask"></i> Interactive Mode</span>
+        </div>
+        <p class="sim-desc">Gunakan simulator ini untuk menyimulasikan pemindaian kartu NFC tanpa perlu perangkat keras HP/NFC.</p>
+
+        <form id="simForm" class="sim-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="simTagId"><i class="fa-solid fa-barcode"></i> Custom Tag ID / UID (Hex):</label>
+              <div class="input-with-action">
+                <input type="text" id="simTagId" placeholder="e.g. 04:E1:92:AB:33:80:11" required />
+                <button type="button" id="randomIdBtn" class="btn btn-sm btn-outline" title="Acak ID Kartu Baru">
+                  <i class="fa-solid fa-shuffle"></i> Acak
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="simRecordType"><i class="fa-solid fa-layer-group"></i> Tipe Data NDEF:</label>
+              <select id="simRecordType">
+                <option value="text">Teks Biasa (Text Record)</option>
+                <option value="url">Tautan Web (URL / URI Record)</option>
+                <option value="employee_id">Kartu Identitas Pegawai (JSON)</option>
+                <option value="vcard">Kartu Kontak VCard</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="simPayload"><i class="fa-solid fa-font"></i> Isi Pesan / Payload:</label>
+            <input type="text" id="simPayload" value="ID Anggota #88392 - Daffa NFC Card" placeholder="Masukkan isi data kartu..." required />
+          </div>
+
+          <div class="sim-actions">
+            <button type="submit" class="btn btn-success">
+              <i class="fa-solid fa-wifi"></i> Simulasikan Pindai Kartu Ini
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- History & Export Card -->
+      <section class="card history-card">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-history"></i> Riwayat Pemindaian</h2>
+          <div class="history-controls">
+            <span class="count-badge" id="historyCount">0 Kartu</span>
+            <button id="exportCsvBtn" class="btn btn-sm btn-outline" title="Ekspor ke CSV">
+              <i class="fa-solid fa-file-csv"></i> CSV
+            </button>
+            <button id="exportJsonBtn" class="btn btn-sm btn-outline" title="Ekspor ke JSON">
+              <i class="fa-solid fa-file-code"></i> JSON
+            </button>
+            <button id="clearHistoryBtn" class="btn btn-sm btn-danger-outline" title="Hapus Riwayat">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-box">
+          <i class="fa-solid fa-magnifying-glass search-icon"></i>
+          <input type="text" id="historySearchInput" placeholder="Cari berdasarkan Tag ID atau isi data..." />
+        </div>
+
+        <!-- Table Container -->
+        <div class="table-responsive">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>Tag ID (UID)</th>
+                <th>Tipe Data</th>
+                <th>Isi Data / Payload</th>
+                <th>Waktu</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody">
+              <!-- Dynamic Rows -->
+            </tbody>
+          </table>
+          <div id="emptyHistoryMsg" class="empty-history">
+            <i class="fa-solid fa-inbox"></i>
+            <p>Belum ada riwayat pemindaian tersimpan.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>&copy; 2026 NFC Tag Reader Web App &bull; Dibuat menggunakan Web NFC API (`NDEFReader`) & HTML5/CSS3/JS</p>
+    </footer>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast" class="toast hidden">
+    <i class="fa-solid fa-circle-check toast-icon" id="toastIcon"></i>
+    <span id="toastMessage">Pesan Notifikasi</span>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
