@@ -30,7 +30,7 @@
         </div>
         <div>
           <h1>NFC Tag & E-Wallet Inspector</h1>
-          <p class="subtitle">Pembaca Kartu NFC & Cek Saldo E-Money / Flazz / TapCash / BRIZZI</p>
+          <p class="subtitle">Pembaca Kartu NFC & Pindai Saldo E-Money / Flazz / TapCash / BRIZZI</p>
         </div>
       </div>
 
@@ -47,7 +47,7 @@
         <i class="fa-solid fa-radar"></i> Pemindai NFC & ID
       </button>
       <button class="nav-tab" id="tabEWallet" data-target="ewalletTab">
-        <i class="fa-solid fa-wallet"></i> Cek Saldo E-Wallet NFC
+        <i class="fa-solid fa-wallet"></i> Pindai & Cek Saldo E-Wallet
       </button>
     </nav>
 
@@ -65,7 +65,7 @@
     <div id="scannerTab" class="tab-content active">
       <main class="main-grid">
         <!-- Left Column: Radar Scanner & Controls -->
-        <section class="card scanner-section">
+        <section class="card scanner-section" id="standardScannerSection">
           <div class="card-header">
             <h2><i class="fa-solid fa-radar"></i> Pemindai NFC (Scanner)</h2>
             <div class="sound-toggle">
@@ -156,13 +156,50 @@
       </main>
     </div>
 
-    <!-- TAB 2: E-WALLET BALANCE CHECKER -->
+    <!-- TAB 2: E-WALLET BALANCE SCANNER & CHECKER -->
     <div id="ewalletTab" class="tab-content hidden">
       <div class="ewallet-grid">
+        <!-- Dedicated E-Wallet Radar Scanner -->
+        <section class="card scanner-section ewallet-scanner-box" id="ewalletScannerSection">
+          <div class="card-header">
+            <h2><i class="fa-solid fa-wifi"></i> Pemindai Kartu E-Wallet</h2>
+            <span class="badge badge-info"><i class="fa-solid fa-bolt"></i> Live NFC Reader</span>
+          </div>
+
+          <div class="radar-wrapper ewallet-radar">
+            <div class="radar-circle ring-1"></div>
+            <div class="radar-circle ring-2"></div>
+            <div class="radar-circle ring-3"></div>
+            <div class="radar-sweep"></div>
+
+            <div class="nfc-card-icon ewallet-icon" id="ewalletCardIcon">
+              <i class="fa-solid fa-wallet"></i>
+            </div>
+
+            <div class="scan-status-overlay">
+              <span class="status-pulse" id="ewalletScannerPulse"></span>
+              <span id="ewalletScannerStatusLabel" class="status-label">Siap Pindai E-Wallet</span>
+            </div>
+          </div>
+
+          <p class="scan-instruction" id="ewalletScanInstruction">
+            Tempelkan kartu <strong>e-Money / Flazz / TapCash / BRIZZI</strong> di belakang HP Anda.
+          </p>
+
+          <div class="scanner-actions">
+            <button id="startEWalletScanBtn" class="btn btn-success">
+              <i class="fa-solid fa-wifi"></i> Pindai Kartu E-Wallet Sekarang
+            </button>
+            <button id="stopEWalletScanBtn" class="btn btn-danger hidden">
+              <i class="fa-solid fa-stop"></i> Hentikan Pindai
+            </button>
+          </div>
+        </section>
+
         <!-- Digital Card Graphic & Balance Display -->
         <section class="card ewallet-card-container">
           <div class="card-header">
-            <h2><i class="fa-solid fa-wallet"></i> Kartu E-Wallet NFC</h2>
+            <h2><i class="fa-solid fa-credit-card"></i> Informasi Saldo E-Wallet</h2>
             <span class="badge badge-info" id="ewalletIssuerBadge">Auto Detect</span>
           </div>
 
@@ -201,27 +238,25 @@
             </div>
             <div class="balance-amount" id="balanceAmountDisplay">Rp 0</div>
             <div class="balance-actions">
-              <button id="scanEWalletBtn" class="btn btn-primary">
-                <i class="fa-solid fa-arrows-rotate"></i> Tempelkan / Pindai Kartu
+              <button id="addMockTopupBtn" class="btn btn-sm btn-outline" title="Simulasi Top Up Saldo">
+                <i class="fa-solid fa-plus-circle"></i> + Top Up Saldo
               </button>
             </div>
           </div>
         </section>
-
-        <!-- E-Wallet Transactions History & Details -->
-        <section class="card ewallet-details-container">
-          <div class="card-header">
-            <h2><i class="fa-solid fa-receipt"></i> Riwayat Transaksi Kartu</h2>
-            <button id="addMockTopupBtn" class="btn btn-sm btn-outline" title="Simulasi Top Up Saldo">
-              <i class="fa-solid fa-plus-circle"></i> + Top Up Saldo
-            </button>
-          </div>
-
-          <div class="transaction-list" id="transactionList">
-            <!-- Dynamic Transaction Items -->
-          </div>
-        </section>
       </div>
+
+      <!-- E-Wallet Transactions Log -->
+      <section class="card ewallet-details-container" style="margin-top: 1.5rem;">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-receipt"></i> Riwayat Transaksi Kartu E-Wallet</h2>
+          <span class="badge"><i class="fa-solid fa-clock-rotate-left"></i> Mutasi Terakhir</span>
+        </div>
+
+        <div class="transaction-list" id="transactionList">
+          <!-- Dynamic Transaction Items -->
+        </div>
+      </section>
     </div>
 
     <!-- LOWER SECTION: SIMULATORS & GLOBAL HISTORY -->

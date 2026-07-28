@@ -38,14 +38,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const navTabs = document.querySelectorAll('.nav-tab');
   const tabContents = document.querySelectorAll('.tab-content');
 
-  // Scanner Elements
-  const scannerSection = document.querySelector('.scanner-section');
+  // Scanner Elements (Standard)
+  const standardScannerSection = document.getElementById('standardScannerSection');
   const startScanBtn = document.getElementById('startScanBtn');
   const stopScanBtn = document.getElementById('stopScanBtn');
   const toggleAudioBtn = document.getElementById('toggleAudioBtn');
   const scannerStatusLabel = document.getElementById('scannerStatusLabel');
   const scanInstruction = document.getElementById('scanInstruction');
 
+  // Scanner Elements (E-Wallet Tab)
+  const ewalletScannerSection = document.getElementById('ewalletScannerSection');
+  const startEWalletScanBtn = document.getElementById('startEWalletScanBtn');
+  const stopEWalletScanBtn = document.getElementById('stopEWalletScanBtn');
+  const ewalletScannerStatusLabel = document.getElementById('ewalletScannerStatusLabel');
+  const ewalletScanInstruction = document.getElementById('ewalletScanInstruction');
+
+  // Inspector Elements
   const resultPlaceholder = document.getElementById('resultPlaceholder');
   const resultDetails = document.getElementById('resultDetails');
   const tagTypeBadge = document.getElementById('tagTypeBadge');
@@ -64,7 +72,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const cardExpiryDisplay = document.getElementById('cardExpiryDisplay');
   const balanceAmountDisplay = document.getElementById('balanceAmountDisplay');
   const balanceUpdateTime = document.getElementById('balanceUpdateTime');
-  const scanEWalletBtn = document.getElementById('scanEWalletBtn');
   const ewalletIssuerBadge = document.getElementById('ewalletIssuerBadge');
   const transactionList = document.getElementById('transactionList');
   const addMockTopupBtn = document.getElementById('addMockTopupBtn');
@@ -144,13 +151,11 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast(state.audioEnabled ? 'Efek Suara Diaktifkan' : 'Efek Suara Dinonaktifkan');
     });
 
+    // Both scan buttons trigger the same Web NFC Reader
     startScanBtn.addEventListener('click', startNFCScanning);
-    scanEWalletBtn.addEventListener('click', () => {
-      // Switch to scanner tab or scan directly
-      startNFCScanning();
-      document.getElementById('tabScanner').click();
-    });
+    startEWalletScanBtn.addEventListener('click', startNFCScanning);
     stopScanBtn.addEventListener('click', stopNFCScanning);
+    stopEWalletScanBtn.addEventListener('click', stopNFCScanning);
 
     copyIdBtn.addEventListener('click', () => {
       if (state.activeCard?.id) {
@@ -195,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         handleNFCReadSuccess(serialNumber, message);
       });
 
-      showToast('Pemindai NFC Aktif! Dekatkan kartu NFC / E-Money.');
+      showToast('Pemindai NFC Aktif! Tempelkan kartu e-Money / Flazz / TapCash / BRIZZI.');
     } catch (error) {
       console.error('NFC Scan error:', error);
       updateScannerUI(false);
@@ -219,16 +224,28 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateScannerUI(isScanning) {
-    scannerSection.classList.toggle('scanning', isScanning);
+    // Standard scanner UI
+    standardScannerSection.classList.toggle('scanning', isScanning);
     startScanBtn.classList.toggle('hidden', isScanning);
     stopScanBtn.classList.toggle('hidden', !isScanning);
+
+    // Dedicated E-Wallet scanner UI
+    ewalletScannerSection.classList.toggle('scanning', isScanning);
+    startEWalletScanBtn.classList.toggle('hidden', isScanning);
+    stopEWalletScanBtn.classList.toggle('hidden', !isScanning);
 
     if (isScanning) {
       scannerStatusLabel.textContent = 'Memindai Kartu...';
       scanInstruction.textContent = 'Dekatkan kartu e-Money, Flazz, TapCash, atau Tag NFC ke belakang HP.';
+
+      ewalletScannerStatusLabel.textContent = 'Memindai Kartu E-Wallet...';
+      ewalletScanInstruction.textContent = 'Tempelkan kartu e-Money / Flazz / TapCash / BRIZZI tepat di sensor NFC HP Anda.';
     } else {
       scannerStatusLabel.textContent = 'Siap Memindai';
       scanInstruction.textContent = 'Tempelkan kartu atau tag NFC Anda di belakang perangkat (HP Android), atau gunakan Simulator di bawah.';
+
+      ewalletScannerStatusLabel.textContent = 'Siap Pindai E-Wallet';
+      ewalletScanInstruction.textContent = 'Tempelkan kartu e-Money / Flazz / TapCash / BRIZZI di belakang HP Anda.';
     }
   }
 
@@ -239,7 +256,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const issuerKey = detectIssuerFromUID(tagId);
     const issuerConfig = cardIssuers[issuerKey];
 
-    // Determine balance
     const existingBalance = getSavedBalanceForCard(tagId, issuerConfig.defaultBalance);
 
     const scanResult = {
@@ -298,7 +314,6 @@ document.addEventListener('DOMContentLoaded', () => {
       source: 'Simulator PC'
     };
 
-    // Save balance state
     saveCardBalance(tagId, balance);
 
     playEWalletChime();
@@ -309,20 +324,17 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast(`Simulasi Pindai! ${issuerConfig.name} - ${formatRupiah(balance)}`);
   }
 
-  // Issuer Detection Logic
   function detectIssuerFromUID(tagId) {
     for (const key in cardIssuers) {
       if (key !== 'generic' && tagId.startsWith(cardIssuers[key].prefix)) {
         return key;
       }
     }
-    // Random fallback assignment based on UID hash if prefix doesn't match
     const keys = ['mandiri', 'flazz', 'tapcash', 'brizzi', 'jakcard'];
     const charCodeSum = tagId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return keys[charCodeSum % keys.length];
   }
 
-  // Update Standard Scanner Result Card
   function displayScanResult(data) {
     state.activeCard = data;
 
@@ -337,7 +349,6 @@ document.addEventListener('DOMContentLoaded', () => {
     scannedRecordCount.textContent = `${data.records.length} Record`;
     scannedIssuer.textContent = data.issuerName;
 
-    // Render NDEF Payload
     ndefRecordsList.innerHTML = '';
     data.records.forEach((rec, idx) => {
       const item = document.createElement('div');
@@ -353,7 +364,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Update E-Wallet Tab Display
   function updateEWalletDisplay(cardData) {
     const config = cardIssuers[cardData.issuerKey] || cardIssuers.generic;
 
@@ -370,11 +380,9 @@ document.addEventListener('DOMContentLoaded', () => {
     renderEWalletTransactions(cardData.id, config.name);
   }
 
-  // Render E-Wallet Mock Transactions
   function renderEWalletTransactions(cardId, issuerName) {
     let txs = state.ewalletTransactions[cardId];
     if (!txs) {
-      // Generate realistic default transactions for this card
       txs = [
         { type: 'deduct', title: 'Gerbang Tol Dalam Kota', amount: 10500, time: 'Hari ini, 08:30' },
         { type: 'deduct', title: 'TransJakarta Busway', amount: 3500, time: 'Kemarin, 17:45' },
@@ -404,7 +412,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Mock Top Up Action
   function handleMockTopup() {
     if (!state.activeCard) {
       showToast('Pindai kartu E-Wallet terlebih dahulu!', true);
@@ -415,7 +422,6 @@ document.addEventListener('DOMContentLoaded', () => {
     state.activeCard.balance += topupAmount;
     saveCardBalance(state.activeCard.id, state.activeCard.balance);
 
-    // Add tx
     const cardId = state.activeCard.id;
     if (!state.ewalletTransactions[cardId]) state.ewalletTransactions[cardId] = [];
     state.ewalletTransactions[cardId].unshift({
@@ -431,7 +437,6 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast(`Top Up +${formatRupiah(topupAmount)} Berhasil!`);
   }
 
-  // Storage Helpers
   function saveCardBalance(cardId, balance) {
     const balances = JSON.parse(localStorage.getItem('card_balances') || '{}');
     balances[cardId] = balance;
@@ -455,7 +460,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // History & Table Render
   function saveToHistory(item) {
     state.history.unshift(item);
     if (state.history.length > 100) state.history.pop();
@@ -513,7 +517,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Export CSV & JSON
   function exportToCSV() {
     if (state.history.length === 0) return showToast('Tidak ada data riwayat.', true);
     let csv = 'No,Tag ID (UID),Bank/Issuer,Saldo (IDR),Payload Summary,Waktu,Sumber\n';
@@ -541,14 +544,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.removeChild(link);
   }
 
-  // Audio Synthesizer Beep (Payment Success Chime)
   function playEWalletChime() {
     if (!state.audioEnabled) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const ctx = new AudioCtx();
 
-      // Play pleasant 2-tone payment chime (E5 -> B5)
       const playTone = (freq, startTime, duration) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -573,7 +574,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Utility Functions
   function generateRandomSimId() {
     simTagIdInput.value = generateRandomUID('04:');
   }
